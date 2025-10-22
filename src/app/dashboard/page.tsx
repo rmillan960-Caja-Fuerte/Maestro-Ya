@@ -64,6 +64,14 @@ export default function Dashboard() {
   const totalRevenue = jobs?.filter(j => j.status === 'Completado').reduce((acc, job) => acc + (job.quoteAmount || 0), 0) || 0;
   const isLoading = jobsLoading;
 
+  // Helper function to format Firestore Timestamps
+  const formatDate = (timestamp: any) => {
+    if (timestamp && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate().toLocaleDateString();
+    }
+    return 'N/A'; // Return 'N/A' if it's not a valid timestamp
+  };
+
   return (
     <>
       <div className="flex items-center">
@@ -178,7 +186,7 @@ export default function Dashboard() {
                           </Badge>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          {new Date(job.requestDate).toLocaleDateString()}
+                          {formatDate(job.requestDate)}
                         </TableCell>
                         <TableCell className="text-right">${(job.quoteAmount || 0).toFixed(2)}</TableCell>
                       </TableRow>
