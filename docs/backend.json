@@ -1,0 +1,529 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the ServiYa platform, including owners, admins, and employees.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the user."
+        },
+        "firstName": {
+          "type": "string",
+          "description": "User's first name."
+        },
+        "lastName": {
+          "type": "string",
+          "description": "User's last name."
+        },
+        "email": {
+          "type": "string",
+          "description": "User's email address.",
+          "format": "email"
+        },
+        "phone": {
+          "type": "string",
+          "description": "User's phone number."
+        },
+        "role": {
+          "type": "string",
+          "description": "User's role within the system (e.g., owner, admin, employee)."
+        },
+        "address": {
+          "type": "string",
+          "description": "User's address."
+        },
+        "employeeType": {
+          "type": "string",
+          "description": "The users' area of expertise (e.g., albañil, fontanero, electricista). Only applies to certain user roles."
+        }
+      },
+      "required": [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "role"
+      ]
+    },
+    "Client": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Client",
+      "type": "object",
+      "description": "Represents a client requesting services.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the client."
+        },
+        "firstName": {
+          "type": "string",
+          "description": "Client's first name."
+        },
+        "lastName": {
+          "type": "string",
+          "description": "Client's last name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Client's email address.",
+          "format": "email"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Client's phone number."
+        },
+        "address": {
+          "type": "string",
+          "description": "Client's address."
+        }
+      },
+      "required": [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone"
+      ]
+    },
+    "ServiceRequest": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ServiceRequest",
+      "type": "object",
+      "description": "Represents a service request from a client, encompassing the details of the job.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the service request."
+        },
+        "clientId": {
+          "type": "string",
+          "description": "Reference to Client. (Relationship: Client 1:N ServiceRequest)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the requested service."
+        },
+        "requestDate": {
+          "type": "string",
+          "description": "Date and time the service was requested.",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the service request (e.g., new, quoted, in progress, completed)."
+        },
+        "assignedTechnicianId": {
+          "type": "string",
+          "description": "Reference to User representing the assigned technician. (Relationship: User 1:N ServiceRequest)"
+        },
+        "category": {
+          "type": "string",
+          "description": "The service request category type (e.g., Electricidad, Plomeria)."
+        }
+      },
+      "required": [
+        "id",
+        "clientId",
+        "description",
+        "requestDate",
+        "status"
+      ]
+    },
+    "Quotation": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Quotation",
+      "type": "object",
+      "description": "Represents a quotation for a service request.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the quotation."
+        },
+        "serviceRequestId": {
+          "type": "string",
+          "description": "Reference to ServiceRequest. (Relationship: ServiceRequest 1:1 Quotation)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the items in the quotation."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Total amount of the quotation."
+        },
+        "creationDate": {
+          "type": "string",
+          "description": "Date the quotation was created.",
+          "format": "date-time"
+        },
+        "expiryDate": {
+          "type": "string",
+          "description": "Date the quotation expires.",
+          "format": "date-time"
+        },
+        "initialPaymentPercentage": {
+          "type": "number",
+          "description": "The percent of total payment due upfront."
+        },
+        "guaranteeDays": {
+          "type": "number",
+          "description": "Amount of guaranteed days that the service is covered."
+        }
+      },
+      "required": [
+        "id",
+        "serviceRequestId",
+        "amount",
+        "creationDate",
+        "expiryDate"
+      ]
+    },
+    "Payment": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Payment",
+      "type": "object",
+      "description": "Represents a payment made for a service request.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the payment."
+        },
+        "serviceRequestId": {
+          "type": "string",
+          "description": "Reference to ServiceRequest. (Relationship: ServiceRequest 1:N Payment)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount paid."
+        },
+        "paymentDate": {
+          "type": "string",
+          "description": "Date the payment was made.",
+          "format": "date-time"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment method used (e.g., cash, credit card, bank transfer)."
+        }
+      },
+      "required": [
+        "id",
+        "serviceRequestId",
+        "amount",
+        "paymentDate",
+        "paymentMethod"
+      ]
+    },
+    "Task": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Task",
+      "type": "object",
+      "description": "Represents a specific task within a service request.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the task."
+        },
+        "serviceRequestId": {
+          "type": "string",
+          "description": "Reference to ServiceRequest. (Relationship: ServiceRequest 1:N Task)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the task."
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the task (e.g., pending, in progress, completed)."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "Date the task is due.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "serviceRequestId",
+        "description",
+        "status"
+      ]
+    },
+    "Notification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Notification",
+      "type": "object",
+      "description": "Represents a notification to a user regarding a service request or task.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the notification."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N Notification)"
+        },
+        "message": {
+          "type": "string",
+          "description": "Notification message."
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Timestamp of the notification.",
+          "format": "date-time"
+        },
+        "isRead": {
+          "type": "boolean",
+          "description": "Indicates whether the notification has been read."
+        },
+        "serviceRequestId": {
+          "type": "string",
+          "description": "Reference to ServiceRequest. (Relationship: ServiceRequest 1:N Notification).  This may be null if the notification is not related to a specific service request"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "message",
+        "timestamp",
+        "isRead"
+      ]
+    },
+    "File": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "File",
+      "type": "object",
+      "description": "Represents a file uploaded in relation to a service request.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the file."
+        },
+        "serviceRequestId": {
+          "type": "string",
+          "description": "Reference to ServiceRequest. (Relationship: ServiceRequest 1:N File)"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Name of the file."
+        },
+        "fileType": {
+          "type": "string",
+          "description": "Type of the file (e.g., image, document)."
+        },
+        "fileUrl": {
+          "type": "string",
+          "description": "URL of the file.",
+          "format": "uri"
+        },
+        "uploadDate": {
+          "type": "string",
+          "description": "Date the file was uploaded.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "serviceRequestId",
+        "fileName",
+        "fileType",
+        "fileUrl",
+        "uploadDate"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. Accessible by the user and admins.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/roles_admin/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Documents in this collection indicate the user is an admin. Existence-based role assignment.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the admin user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/roles_owner/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Documents in this collection indicate the user is an owner. Existence-based role assignment.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the owner user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/clients/{clientId}",
+        "definition": {
+          "entityName": "Client",
+          "schema": {
+            "$ref": "#/backend/entities/Client"
+          },
+          "description": "Stores client profiles. Accessible by admins and the client themselves.",
+          "params": [
+            {
+              "name": "clientId",
+              "description": "The unique identifier of the client."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/serviceRequests/{serviceRequestId}",
+        "definition": {
+          "entityName": "ServiceRequest",
+          "schema": {
+            "$ref": "#/backend/entities/ServiceRequest"
+          },
+          "description": "Stores service requests. Includes denormalized 'clientId' and 'assignedTechnicianId' to enable efficient filtering and access control. Accessible by the client who created the request, assigned technician, and admins.",
+          "params": [
+            {
+              "name": "serviceRequestId",
+              "description": "The unique identifier of the service request."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/serviceRequests/{serviceRequestId}/quotations/{quotationId}",
+        "definition": {
+          "entityName": "Quotation",
+          "schema": {
+            "$ref": "#/backend/entities/Quotation"
+          },
+          "description": "Stores quotations for a specific service request.",
+          "params": [
+            {
+              "name": "serviceRequestId",
+              "description": "The unique identifier of the service request."
+            },
+            {
+              "name": "quotationId",
+              "description": "The unique identifier of the quotation."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/serviceRequests/{serviceRequestId}/payments/{paymentId}",
+        "definition": {
+          "entityName": "Payment",
+          "schema": {
+            "$ref": "#/backend/entities/Payment"
+          },
+          "description": "Stores payments for a specific service request.",
+          "params": [
+            {
+              "name": "serviceRequestId",
+              "description": "The unique identifier of the service request."
+            },
+            {
+              "name": "paymentId",
+              "description": "The unique identifier of the payment."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/serviceRequests/{serviceRequestId}/tasks/{taskId}",
+        "definition": {
+          "entityName": "Task",
+          "schema": {
+            "$ref": "#/backend/entities/Task"
+          },
+          "description": "Stores tasks for a specific service request.",
+          "params": [
+            {
+              "name": "serviceRequestId",
+              "description": "The unique identifier of the service request."
+            },
+            {
+              "name": "taskId",
+              "description": "The unique identifier of the task."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/notifications/{notificationId}",
+        "definition": {
+          "entityName": "Notification",
+          "schema": {
+            "$ref": "#/backend/entities/Notification"
+          },
+          "description": "Stores notifications for a specific user.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "notificationId",
+              "description": "The unique identifier of the notification."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/serviceRequests/{serviceRequestId}/files/{fileId}",
+        "definition": {
+          "entityName": "File",
+          "schema": {
+            "$ref": "#/backend/entities/File"
+          },
+          "description": "Stores files related to a specific service request.",
+          "params": [
+            {
+              "name": "serviceRequestId",
+              "description": "The unique identifier of the service request."
+            },
+            {
+              "name": "fileId",
+              "description": "The unique identifier of the file."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "This Firestore structure is designed to support the ServiYa application, focusing on efficient data access, robust security, and scalability. It leverages denormalization and structural segregation to ensure authorization independence, which is crucial for atomic operations and simplified security rules. The structure follows the principle of storing roles in the database rather than using custom claims (DBAC). The design supports the application's core features, including quotation management, task tracking, technician assignments, and client communications. The overall structure prioritizes the principles described in the design document. \n\nKey structural elements:\n\n*   **Users:** User data is stored in `/users/{userId}`. Admin/Owner users are stored in dedicated `/roles_admin/{userId}` and `/roles_owner/{userId}` collections.\n*   **Clients:** Client data is stored in `/clients/{clientId}`.\n*   **Service Requests:** Stored under `/serviceRequests/{serviceRequestId}`.  Each Service Request is associated with a client and potentially a technician.  Ownership integrity is maintained at this level.\n*   **Quotations:** Quotations are stored under `/serviceRequests/{serviceRequestId}/quotations/{quotationId}` to ensure that each quotation belongs to one service request.\n*   **Payments:** Payments are stored under `/serviceRequests/{serviceRequestId}/payments/{paymentId}` to ensure that each payment belongs to one service request.\n*   **Tasks:** Tasks are stored under `/serviceRequests/{serviceRequestId}/tasks/{taskId}` to ensure that each task belongs to one service request.\n*   **Notifications:** Notifications are stored under `/users/{userId}/notifications/{notificationId}` to ensure that each notification belongs to one user. The `serviceRequestId` is denormalized inside to provide relationship for the notification for ease of access.\n*   **Files:** Files are stored under `/serviceRequests/{serviceRequestId}/files/{fileId}` to ensure that each file belongs to one service request.\n\n**Authorization Independence (Denormalization):**\n\n*   Authorization is primarily path-based for user-owned data (e.g., notifications). For collaborative entities like service requests, the `members` map within the document stores user roles directly. This denormalization avoids the need for `get()` calls in security rules, enabling atomic operations.\n\n**QAPs (Rules are not Filters):**\n\n*   The structure segregates data based on access requirements. Private user data resides under `/users/{userId}`, while collaborative data like service requests utilize membership maps for authorization. This segregation, combined with the DBAC model (roles stored in the database), allows for secure `list` operations.  Admin/Owner users can be validated using `/roles_admin/{userId}` and `/roles_owner/{userId}` existence checks in rules without querying user documents."
+  }
+}

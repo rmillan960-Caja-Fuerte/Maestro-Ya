@@ -1,0 +1,270 @@
+/**
+ * @fileoverview Firestore Security Rules for ServiYa Platform
+ *
+ * Core Philosophy:
+ * This ruleset enforces a multi-layered security model, combining path-based authorization for user-owned data,
+ * role-based access control for administrative functions, and shared access patterns for collaborative entities.
+ *
+ * Data Structure:
+ * - Users: `/users/{userId}` (user profiles), `/roles_admin/{userId}`, `/roles_owner/{userId}` (role markers)
+ * - Clients: `/clients/{clientId}`
+ * - Service Requests: `/serviceRequests/{serviceRequestId}`
+ * - Quotations: `/serviceRequests/{serviceRequestId}/quotations/{quotationId}`
+ * - Payments: `/serviceRequests/{serviceRequestId}/payments/{paymentId}`
+ * - Tasks: `/serviceRequests/{serviceRequestId}/tasks/{taskId}`
+ * - Notifications: `/users/{userId}/notifications/{notificationId}`
+ * - Files: `/serviceRequests/{serviceRequestId}/files/{fileId}`
+ *
+ * Key Security Decisions:
+ * - Strict user-ownership enforced for `/users/{userId}` and its subcollections.
+ * - Role-based access (admin/owner) is determined by document existence in `/roles_admin` and `/roles_owner`.
+ * - Service Requests are secured using a combination of client ownership, technician assignment, and role-based access.
+ * - Data validation is minimal, focusing on authorization-critical fields (e.g., ownerId, IDs) to enable rapid prototyping.
+ *
+ * Denormalization for Authorization:
+ * - Service requests denormalize `clientId` and `assignedTechnicianId` to avoid costly `get()` calls for access control.
+ * - Notifications denormalize `serviceRequestId` for easier querying in the client.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Enforces user-ownership for user profiles.
+     * @path /users/{userId}
+     * @allow (create) User 'user123' can create their own profile.
+     * @allow (read, update, delete) User 'user123' can read, update, and delete their own profile.
+     * @deny (create) User 'user456' cannot create a profile for 'user123'.
+     * @principle Enforces document ownership for all operations on user profiles.
+     */
+    match /users/{userId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource.data != null;
+      }
+
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if false;
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+
+    /**
+     * @description Grants read access to admin users.
+     * @path /roles_admin/{userId}
+     * @allow (get) Admin 'admin123' can check their admin status.
+     * @deny (create, update, delete) Only the backend can manage admin roles.
+     * @principle Determines admin status based on document existence.
+     */
+    match /roles_admin/{userId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && isAdmin();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Grants read access to owner users.
+     * @path /roles_owner/{userId}
+     * @allow (get) Owner 'owner123' can check their owner status.
+     * @deny (create, update, delete) Only the backend can manage owner roles.
+     * @principle Determines owner status based on document existence.
+     */
+    match /roles_owner/{userId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwnerRole() {
+        return exists(/databases/$(database)/documents/roles_owner/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && isOwnerRole();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Enforces client-ownership and admin access for client profiles.
+     * @path /clients/{clientId}
+     * @allow (create) Client 'client123' can create their own profile.
+     * @allow (read, update, delete) Client 'client123' can read, update, and delete their own profile. Admins can also access client profiles.
+     * @deny (create) Client 'client456' cannot create a profile for 'client123'.
+     * @principle Enforces document ownership for clients and allows admin access.
+     */
+    match /clients/{clientId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(clientId) {
+        return request.auth.uid == clientId;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      function isExistingOwner(clientId) {
+        return isOwner(clientId) && resource.data != null;
+      }
+
+      allow get: if isSignedIn() && (isOwner(clientId) || isAdmin());
+      allow list: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn() && isOwner(clientId);
+      allow update: if isSignedIn() && (isOwner(clientId) || isAdmin());
+      allow delete: if isSignedIn() && (isOwner(clientId) || isAdmin());
+    }
+
+    /**
+     * @description Secures service requests based on client ownership, technician assignment, and admin access.
+     * @path /serviceRequests/{serviceRequestId}
+     * @allow (create) Client 'client123' can create a service request with clientId 'client123'.
+     * @allow (read, update, delete) Client 'client123' can read, update, and delete their own service request. Assigned technician 'tech456' and admins can also access.
+     * @deny (create) Client 'client456' cannot create a service request with clientId 'client123'.
+     * @principle Enforces client ownership, technician access, and admin access for service requests.
+     */
+    match /serviceRequests/{serviceRequestId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isClient(clientId) {
+        return request.auth.uid == clientId;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      function isAssignedTechnician(assignedTechnicianId) {
+        return request.auth.uid == assignedTechnicianId;
+      }
+
+      allow get: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdmin());
+    }
+
+    /**
+     * @description Secures quotations under service requests.
+     * @path /serviceRequests/{serviceRequestId}/quotations/{quotationId}
+     */
+    match /serviceRequests/{serviceRequestId}/quotations/{quotationId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+    }
+
+    /**
+     * @description Secures payments under service requests.
+     * @path /serviceRequests/{serviceRequestId}/payments/{paymentId}
+     */
+    match /serviceRequests/{serviceRequestId}/payments/{paymentId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+    }
+
+    /**
+     * @description Secures tasks under service requests.
+     * @path /serviceRequests/{serviceRequestId}/tasks/{taskId}
+     */
+    match /serviceRequests/{serviceRequestId}/tasks/{taskId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+    }
+
+    /**
+     * @description Enforces user-ownership for notifications.
+     * @path /users/{userId}/notifications/{notificationId}
+     */
+    match /users/{userId}/notifications/{notificationId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource.data != null;
+      }
+
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if isSignedIn() && isOwner(userId);
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+
+    /**
+     * @description Secures files under service requests.
+     * @path /serviceRequests/{serviceRequestId}/files/{fileId}
+     */
+    match /serviceRequests/{serviceRequestId}/files/{fileId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isAdmin() {
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+      }
+
+      allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || isAdmin());
+    }
+  }
+}
