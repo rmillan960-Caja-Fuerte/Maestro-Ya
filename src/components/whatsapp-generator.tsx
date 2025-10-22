@@ -42,7 +42,7 @@ export function WhatsAppGenerator({ job }: { job: Job }) {
   };
 
   const handleSend = () => {
-    if (state.message && job.client.phone) {
+    if (state.message && job.client?.phone) {
       const phoneNumber = job.client.phone.replace(/[^0-9]/g, '');
       const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(state.message)}`;
       window.open(url, '_blank');
@@ -65,6 +65,10 @@ export function WhatsAppGenerator({ job }: { job: Job }) {
     }
   }, [state.error, toast]);
 
+  if (!job.client) {
+    return <Card><CardHeader><CardTitle>Generador de Mensajes de WhatsApp</CardTitle></CardHeader><CardContent><p>Cargando datos del cliente...</p></CardContent></Card>
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -75,7 +79,7 @@ export function WhatsAppGenerator({ job }: { job: Job }) {
       </CardHeader>
       <form action={formAction}>
         <CardContent className="space-y-4">
-          <input type="hidden" name="clientName" value={job.client.name} />
+          <input type="hidden" name="clientName" value={`${job.client.firstName} ${job.client.lastName}`} />
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -84,7 +88,7 @@ export function WhatsAppGenerator({ job }: { job: Job }) {
             </div>
             <div className="space-y-2">
                 <Label htmlFor="pricingInformation">Información de Precios (Opcional)</Label>
-                <Input id="pricingInformation" name="pricingInformation" placeholder={`Ej: El costo es $${job.quoteAmount.toFixed(2)}`} />
+                <Input id="pricingInformation" name="pricingInformation" placeholder={`Ej: El costo es $${(job.quoteAmount || 0).toFixed(2)}`} />
             </div>
           </div>
           

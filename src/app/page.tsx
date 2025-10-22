@@ -8,22 +8,38 @@ import { Label } from '@/components/ui/label';
 import Image from 'next/image';
 import { Wrench } from 'lucide-react';
 import { useState } from 'react';
-import { useAuth } from '@/firebase';
-import { initiateEmailSignIn } from '@/firebase/non-blocking-login';
+import { useAuth, useUser } from '@/firebase';
+import { initiateEmailSignIn, initiateEmailSignUp } from '@/firebase/non-blocking-login';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
   const auth = useAuth();
+  const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
 
-  const handleLogin = (e: React.FormEvent) => {
+  if (user && !isUserLoading) {
+    router.push('/dashboard');
+  }
+
+  const handleAuthAction = (e: React.FormEvent) => {
     e.preventDefault();
     if (auth) {
-      initiateEmailSignIn(auth, email, password);
-      // The onAuthStateChanged listener in the provider will handle the redirect
-      router.push('/dashboard');
+      if (isLogin) {
+        initiateEmailSignIn(auth, email, password);
+        router.push('/dashboard');
+      } else {
+        initiateEmailSignUp(auth, email, password);
+        toast({
+          title: '¡Cuenta Creada!',
+          description: "Revisa tu correo para verificar tu cuenta y luego inicia sesión.",
+        });
+        setIsLogin(true); // Switch to login view after signup
+      }
     }
   };
 
@@ -37,10 +53,10 @@ export default function Home() {
               ServiYa
             </h1>
             <p className="text-balance text-muted-foreground">
-              Ingrese sus credenciales para acceder a su cuenta
+              {isLogin ? 'Ingrese sus credenciales para acceder' : 'Cree una nueva cuenta para empezar'}
             </p>
           </div>
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleAuthAction}>
             <div className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="email">Correo electrónico</Label>
@@ -56,12 +72,14 @@ export default function Home() {
               <div className="grid gap-2">
                 <div className="flex items-center">
                   <Label htmlFor="password">Contraseña</Label>
-                  <Link
-                    href="#"
-                    className="ml-auto inline-block text-sm underline"
-                  >
-                    ¿Olvidó su contraseña?
-                  </Link>
+                  {isLogin && (
+                    <Link
+                      href="#"
+                      className="ml-auto inline-block text-sm underline"
+                    >
+                      ¿Olvidó su contraseña?
+                    </Link>
+                  )}
                 </div>
                 <Input 
                   id="password" 
@@ -72,10 +90,16 @@ export default function Home() {
                 />
               </div>
               <Button type="submit" className="w-full">
-                Iniciar Sesión
+                {isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
               </Button>
             </div>
           </form>
+          <div className="mt-4 text-center text-sm">
+            {isLogin ? '¿No tienes una cuenta?' : '¿Ya tienes una cuenta?'}
+            <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="underline">
+              {isLogin ? 'Regístrate' : 'Inicia Sesión'}
+            </Button>
+          </div>
         </div>
       </div>
       <div className="hidden bg-muted lg:block">

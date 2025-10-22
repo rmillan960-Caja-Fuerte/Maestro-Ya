@@ -1,4 +1,5 @@
-import { jobs } from '@/lib/data';
+'use client';
+import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
 import { ArrowLeft, User, Phone, Mail, MapPin, Wrench, DollarSign, Calendar, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -9,6 +10,9 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { WhatsAppGenerator } from '@/components/whatsapp-generator';
+import { doc, getDoc } from 'firebase/firestore';
+import { Job, Client, User as UserType } from '@/lib/definitions';
+import { useEffect, useState } from 'react';
 
 const statusStyles: { [key: string]: string } = {
   'Completado': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -20,10 +24,45 @@ const statusStyles: { [key: string]: string } = {
 };
 
 export default function JobDetailPage({ params }: { params: { id: string } }) {
-  const job = jobs.find(j => j.id === params.id);
+  const firestore = useFirestore();
+  const jobRef = useMemoFirebase(() => doc(firestore, 'serviceRequests', params.id), [firestore, params.id]);
+  const { data: job, isLoading } = useDoc<Job>(jobRef);
+  const [client, setClient] = useState<Client | null>(null);
+  const [technician, setTechnician] = useState<UserType | null>(null);
+
+  useEffect(() => {
+    const fetchRelatedData = async () => {
+      if (job) {
+        if (job.clientRef) {
+          const clientSnap = await getDoc(job.clientRef);
+          if (clientSnap.exists()) {
+            setClient(clientSnap.data() as Client);
+          }
+        }
+        if (job.assignedTechnicianRef) {
+          const techSnap = await getDoc(job.assignedTechnicianRef);
+          if (techSnap.exists()) {
+            setTechnician(techSnap.data() as UserType);
+          }
+        }
+      }
+    };
+    fetchRelatedData();
+  }, [job]);
+
+
+  if (isLoading) {
+    return <div>Cargando...</div>;
+  }
 
   if (!job) {
     notFound();
+  }
+
+  const enrichedJob = {
+      ...job,
+      client: client,
+      technician: technician
   }
 
   return (
@@ -36,7 +75,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           </Link>
         </Button>
         <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0 font-headline">
-          {job.title}
+          {job.description}
         </h1>
         <Badge variant="outline" className={cn("ml-auto sm:ml-0", statusStyles[job.status])}>
           {job.status}
@@ -53,7 +92,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </CardContent>
           </Card>
           
-          <WhatsAppGenerator job={job} />
+          {enrichedJob.client && <WhatsAppGenerator job={enrichedJob as Job} />}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -61,7 +100,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <Button size="sm" variant="outline"><Upload className="h-4 w-4 mr-2" />Cargar Archivo</Button>
             </CardHeader>
             <CardContent>
-              {job.images.length > 0 ? (
+              {job.images && job.images.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {job.images.map((image, index) => (
                     <div key={index} className="relative aspect-video rounded-lg overflow-hidden">
@@ -89,37 +128,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <CardContent className="grid gap-4">
                 <div className="flex items-center justify-between">
                     <span className="text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4"/>Monto Cotizado</span>
-                    <span className="font-semibold">${job.quoteAmount.toFixed(2)}</span>
+                    <span className="font-semibold">${(job.quoteAmount || 0).toFixed(2)}</span>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
                     <span className="text-muted-foreground flex items-center gap-2"><Calendar className="h-4 w-4"/>Fecha Creación</span>
-                    <span className="font-semibold">{new Date(job.createdAt).toLocaleDateString('es-EC')}</span>
+                    <span className="font-semibold">{new Date(job.requestDate).toLocaleDateString('es-EC')}</span>
                 </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Información del Cliente</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 text-sm">
-              <div className="font-semibold flex items-center gap-2"><User className="h-4 w-4"/>{job.client.name}</div>
-              <div className="text-muted-foreground flex items-center gap-2"><Phone className="h-4 w-4"/>{job.client.phone}</div>
-              <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{job.client.email}</div>
-              <div className="text-muted-foreground flex items-center gap-2"><MapPin className="h-4 w-4"/>{job.client.address}</div>
-            </CardContent>
-          </Card>
-          {job.technician && (
+          {client && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Información del Cliente</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 text-sm">
+                <div className="font-semibold flex items-center gap-2"><User className="h-4 w-4"/>{client.firstName} {client.lastName}</div>
+                <div className="text-muted-foreground flex items-center gap-2"><Phone className="h-4 w-4"/>{client.phone}</div>
+                <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{client.email}</div>
+                <div className="text-muted-foreground flex items-center gap-2"><MapPin className="h-4 w-4"/>{client.address}</div>
+              </CardContent>
+            </Card>
+          )}
+          {technician && (
             <Card>
               <CardHeader>
                 <CardTitle>Técnico Asignado</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 text-sm">
                 <div className="flex items-center gap-3">
-                  <Image src={job.technician.avatarUrl} alt="Avatar" width={40} height={40} className="rounded-full" data-ai-hint="user avatar"/>
+                  <Image src={"https://picsum.photos/seed/tech/40/40"} alt="Avatar" width={40} height={40} className="rounded-full" data-ai-hint="user avatar"/>
                   <div>
-                    <div className="font-semibold flex items-center gap-2"><Wrench className="h-4 w-4"/>{job.technician.name}</div>
-                    <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{job.technician.email}</div>
+                    <div className="font-semibold flex items-center gap-2"><Wrench className="h-4 w-4"/>{technician.firstName} {technician.lastName}</div>
+                    <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{technician.email}</div>
                   </div>
                 </div>
               </CardContent>

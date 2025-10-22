@@ -1,3 +1,4 @@
+'use client';
 import {
   Activity,
   ArrowUpRight,
@@ -34,9 +35,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { jobs, users } from "@/lib/data"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { useCollection, useFirestore, useMemoFirebase } from "@/firebase"
+import { collection, query } from "firebase/firestore"
+import { Job, User } from "@/lib/definitions"
 
 export default function Dashboard() {
 
@@ -48,17 +51,27 @@ export default function Dashboard() {
     'Cotización': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
     'Aprobado': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
   };
+  
+  const firestore = useFirestore();
+  const serviceRequestsQuery = useMemoFirebase(() => query(collection(firestore, 'serviceRequests')), [firestore]);
+  const usersQuery = useMemoFirebase(() => query(collection(firestore, 'users')), [firestore]);
 
-  const activeJobs = jobs.filter(j => j.status === 'En Progreso' || j.status === 'Aprobado').length;
-  const pendingPayments = jobs.filter(j => j.status === 'Pendiente de Pago').length;
-  const newQuotes = jobs.filter(j => j.status === 'Cotización').length;
-  const totalRevenue = jobs.filter(j => j.status === 'Completado').reduce((acc, job) => acc + job.quoteAmount, 0);
+  const { data: jobs, isLoading: jobsLoading } = useCollection<Job>(serviceRequestsQuery);
+  const { data: users, isLoading: usersLoading } = useCollection<User>(usersQuery);
+
+  const activeJobs = jobs?.filter(j => j.status === 'En Progreso' || j.status === 'Aprobado').length || 0;
+  const pendingPayments = jobs?.filter(j => j.status === 'Pendiente de Pago').length || 0;
+  const newQuotes = jobs?.filter(j => j.status === 'Cotización').length || 0;
+  const totalRevenue = jobs?.filter(j => j.status === 'Completado').reduce((acc, job) => acc + (job.quoteAmount || 0), 0) || 0;
+  const isLoading = jobsLoading || usersLoading;
 
   return (
     <>
       <div className="flex items-center">
           <h1 className="text-lg font-semibold md:text-2xl font-headline">Dashboard</h1>
       </div>
+       {isLoading ? <p>Cargando...</p> :
+       <>
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -147,16 +160,16 @@ export default function Dashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {jobs.slice(0, 5).map(job => (
+                {jobs && jobs.slice(0, 5).map(job => (
                   <TableRow key={job.id}>
                     <TableCell>
-                      <div className="font-medium">{job.client.name}</div>
+                      <div className="font-medium">{job.client?.name || 'N/A'}</div>
                       <div className="hidden text-sm text-muted-foreground md:inline">
-                        {job.client.email}
+                         {job.client?.email || 'N/A'}
                       </div>
                     </TableCell>
                     <TableCell className="hidden xl:table-column">
-                      {job.title}
+                      {job.description}
                     </TableCell>
                     <TableCell className="hidden xl:table-column">
                       <Badge className={cn("text-xs", statusStyles[job.status])} variant="outline">
@@ -164,11 +177,16 @@ export default function Dashboard() {
                       </Badge>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
-                      {new Date(job.createdAt).toLocaleDateString()}
+                      {new Date(job.requestDate).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">${job.quoteAmount.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">${(job.quoteAmount || 0).toFixed(2)}</TableCell>
                   </TableRow>
                 ))}
+                 {(!jobs || jobs.length === 0) && (
+                    <TableRow>
+                        <TableCell colSpan={5} className="text-center">No hay transacciones recientes.</TableCell>
+                    </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -181,26 +199,31 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-8">
-            {users.filter(u => u.role === 'Technician').slice(0, 4).map(user => (
+            {users && users.filter(u => u.role === 'employee').slice(0, 4).map(user => (
               <div key={user.id} className="flex items-center gap-4">
                 <Avatar className="hidden h-9 w-9 sm:flex">
-                  <AvatarImage src={user.avatarUrl} alt="Avatar" data-ai-hint="user avatar" />
-                  <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                  <AvatarImage src={"https://picsum.photos/seed/user/40/40"} alt="Avatar" data-ai-hint="user avatar" />
+                  <AvatarFallback>{user.firstName.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div className="grid gap-1">
                   <p className="text-sm font-medium leading-none">
-                    {user.name}
+                    {user.firstName} {user.lastName}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {user.email}
                   </p>
                 </div>
-                <div className="ml-auto font-medium">+{jobs.filter(j => j.technician?.id === user.id).length} trab.</div>
+                <div className="ml-auto font-medium">+{jobs?.filter(j => j.assignedTechnicianId === user.id).length || 0} trab.</div>
               </div>
             ))}
+            {(!users || users.filter(u => u.role === 'employee').length === 0) && (
+                <p className="text-sm text-muted-foreground">No hay técnicos activos.</p>
+            )}
           </CardContent>
         </Card>
       </div>
+      </>
+}
     </>
   )
 }

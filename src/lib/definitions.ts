@@ -1,38 +1,55 @@
+import { DocumentReference } from "firebase/firestore";
+
 export type User = {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  role: 'Owner' | 'Admin' | 'Technician';
-  avatarUrl: string;
+  phone: string;
+  role: 'owner' | 'admin' | 'employee';
+  address: string;
+  employeeType?: string;
 };
 
 export type Client = {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   email: string;
   address: string;
 };
 
-export type Quote = {
+export type Quotation = {
   id: string;
-  jobId: string;
-  clientName: string;
+  serviceRequestId: string;
+  serviceRequestRef?: DocumentReference;
+  description: string;
   amount: number;
-  status: 'Draft' | 'Sent' | 'Approved' | 'Rejected';
-  createdAt: string;
+  creationDate: string;
+  expiryDate: string;
+  initialPaymentPercentage: number;
+  guaranteeDays: number;
 };
 
 export type JobStatus = 'Cotización' | 'Aprobado' | 'En Progreso' | 'Completado' | 'Cancelado' | 'Pendiente de Pago';
 
-export type Job = {
+export type ServiceRequest = {
   id: string;
-  title: string;
-  client: Client;
-  technician?: User;
-  status: JobStatus;
+  clientId: string;
+  clientRef?: DocumentReference;
   description: string;
-  quoteAmount: number;
-  createdAt: string;
-  images: { url: string, hint: string }[];
+  requestDate: string;
+  status: JobStatus;
+  assignedTechnicianId?: string;
+  assignedTechnicianRef?: DocumentReference;
+  category: string;
+  quoteAmount?: number; // Denormalized from Quotation for easier access
+  images?: { url: string, hint: string }[];
 };
+
+// Combining ServiceRequest with related data for easier use in components
+export interface Job extends ServiceRequest {
+  client?: Client;
+  technician?: User;
+}
