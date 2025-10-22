@@ -166,11 +166,13 @@
         },
         "initialPaymentPercentage": {
           "type": "number",
-          "description": "The percent of total payment due upfront."
+          "description": "The percent of total payment due upfront.",
+          "default": 30
         },
         "guaranteeDays": {
           "type": "number",
-          "description": "Amount of guaranteed days that the service is covered."
+          "description": "Amount of guaranteed days that the service is covered.",
+          "default": 90
         }
       },
       "required": [
@@ -178,7 +180,9 @@
         "serviceRequestId",
         "amount",
         "creationDate",
-        "expiryDate"
+        "expiryDate",
+        "initialPaymentPercentage",
+        "guaranteeDays"
       ]
     },
     "Payment": {

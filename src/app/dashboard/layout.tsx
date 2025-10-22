@@ -1,3 +1,6 @@
+
+'use client';
+
 import Link from 'next/link';
 import {
   Home,
@@ -7,6 +10,7 @@ import {
   Contact,
   Menu,
   Search,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,12 +32,39 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { DashboardNav, MobileNav, SettingsNav } from '@/components/dashboard-nav';
 import Image from 'next/image';
+import { useAuth, useUser } from '@/firebase';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const auth = useAuth();
+  const { user, isUserLoading } = useUser();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      router.push('/');
+    }
+  }, [user, isUserLoading, router]);
+
+  const handleLogout = () => {
+    if (auth) {
+      auth.signOut();
+    }
+  };
+
+  if (isUserLoading || !user) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="loader">Cargando...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
       <div className="hidden border-r bg-muted/40 md:block">
@@ -88,7 +119,7 @@ export default function DashboardLayout({
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="icon" className="rounded-full">
                 <Image
-                    src="https://picsum.photos/seed/user1/40/40"
+                    src={user.photoURL || "https://picsum.photos/seed/user1/40/40"}
                     width={40}
                     height={40}
                     alt="User avatar"
@@ -99,12 +130,15 @@ export default function DashboardLayout({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
+              <DropdownMenuLabel>{user.displayName || user.email || 'Mi Cuenta'}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem>Perfil</DropdownMenuItem>
               <DropdownMenuItem>Soporte</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild><Link href="/">Cerrar Sesión</Link></DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Cerrar Sesión</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
