@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Image from 'next/image';
 import { Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth, useUser } from '@/firebase';
 import { initiateEmailSignIn, initiateEmailSignUp } from '@/firebase/non-blocking-login';
 import { useRouter } from 'next/navigation';
@@ -22,8 +22,18 @@ export default function Home() {
   const router = useRouter();
   const { toast } = useToast();
 
-  if (user && !isUserLoading) {
-    router.push('/dashboard');
+  useEffect(() => {
+    if (user && !isUserLoading) {
+      router.push('/dashboard');
+    }
+  }, [user, isUserLoading, router]);
+  
+  if (isUserLoading || user) {
+    return (
+        <div className="flex justify-center items-center min-h-screen">
+            <div className="loader">Cargando...</div>
+        </div>
+    )
   }
 
   const handleAuthAction = (e: React.FormEvent) => {
@@ -31,7 +41,7 @@ export default function Home() {
     if (auth) {
       if (isLogin) {
         initiateEmailSignIn(auth, email, password);
-        router.push('/dashboard');
+        // No need to push here, useEffect will handle it
       } else {
         initiateEmailSignUp(auth, email, password);
         toast({
