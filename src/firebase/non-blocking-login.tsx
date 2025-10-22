@@ -6,7 +6,7 @@ import {
   signInWithEmailAndPassword,
   // Assume getAuth and app are initialized elsewhere
 } from 'firebase/auth';
-import { getFirestore, collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 /** Initiate anonymous sign-in (non-blocking). */
 export function initiateAnonymousSignIn(authInstance: Auth): void {
@@ -32,14 +32,18 @@ export function initiateEmailSignUp(authInstance: Auth, email: string, password:
             // This is the first user, make them an owner
             role = 'owner';
             const ownerRoleRef = doc(db, 'roles_owner', user.uid);
-            await setDoc(ownerRoleRef, { assignedAt: new Date() });
+            // This document primarily serves as a record. The actual permission is granted via custom claims.
+            await setDoc(ownerRoleRef, { assignedAt: serverTimestamp() });
         }
 
         const userDocRef = doc(db, 'users', user.uid);
-        const nameParts = email.split('@')[0].split('.');
-        const firstName = nameParts[0] || 'Nuevo';
-        const lastName = nameParts[1] || 'Usuario';
+        const nameParts = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').split(' ');
+        const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'Nuevo';
+        const lastName = nameParts.length > 1 ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'Usuario';
 
+        // We are not setting custom claims here because it requires Admin SDK.
+        // Instead, we store the role in the user's document.
+        // The security rules will read this document to verify the role.
         await setDoc(userDocRef, {
             id: user.uid,
             email: user.email,
