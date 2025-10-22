@@ -69,7 +69,9 @@ export default function Dashboard() {
       <div className="flex items-center">
           <h1 className="text-lg font-semibold md:text-2xl font-headline">Dashboard</h1>
       </div>
-       {isLoading ? <p>Cargando...</p> :
+      {isLoading ? (
+        <p>Cargando...</p>
+      ) : (
        <>
           <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
             <Card>
@@ -192,7 +194,7 @@ export default function Dashboard() {
             </Card>
           </div>
        </>
-      }
+      )}
     </>
   );
 }
