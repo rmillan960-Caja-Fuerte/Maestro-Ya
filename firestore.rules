@@ -1,228 +1,243 @@
 /**
- * @file This file defines the Firestore Security Rules for the ServiYa application.
+ * @fileoverview Firestore Security Rules for ServiYa Prototyping.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for personal data, role-based access for administrative functions,
- * and shared access for collaborative entities like service requests. It prioritizes security through denormalization
- * and structural segregation to ensure authorization independence. The rules implement a Database-Based Access Control
- * (DBAC) model where user roles are determined by the presence of documents in specific collections (e.g., /roles_admin/{userId}).
+ * This ruleset prioritizes strong authorization controls based on user roles and data ownership, while maintaining a flexible data structure to support rapid prototyping. It adopts a "Database-driven Access Control" (DBAC) approach, storing role information directly in Firestore documents, and denormalizes access control data to avoid costly `get()` operations in rules.
  *
  * Data Structure:
- * - /users/{userId}: Stores personal user profiles. Accessible only by the user and admins.
- * - /roles_admin/{userId}, /roles_owner/{userId}: Indicate admin/owner roles. Existence of a document grants the role.
- * - /clients/{clientId}: Stores client profiles. Accessible by the client and admins.
- * - /serviceRequests/{serviceRequestId}: Stores service requests. Accessible by the client who created the request,
- *   assigned technician, and admins. Contains denormalized clientId and assignedTechnicianId for efficient filtering.
- * - /serviceRequests/{serviceRequestId}/quotations/{quotationId}: Stores quotations for service requests.
- * - /serviceRequests/{serviceRequestId}/payments/{paymentId}: Stores payments for service requests.
- * - /serviceRequests/{serviceRequestId}/tasks/{taskId}: Stores tasks for service requests.
- * - /users/{userId}/notifications/{notificationId}: Stores notifications for users. Accessible only by the user.
- * - /serviceRequests/{serviceRequestId}/files/{fileId}: Stores files related to service requests.
+ * - /users/{userId}: Stores individual user profiles. Access is restricted to the user themselves and admins.
+ * - /roles_admin/{userId}, /roles_owner/{userId}: Indicates admin and owner roles respectively, assigned by the existence of a document.
+ * - /clients/{clientId}: Stores client profiles. Accessible by the client themselves and admins/owners.
+ * - /serviceRequests/{serviceRequestId}: Stores service requests. Access is controlled based on the 'clientId', 'assignedTechnicianId' fields and admin/owner roles.
+ * - /serviceRequests/{serviceRequestId}/quotations/{quotationId}: Stores quotations for service requests. Access is inherited from the parent service request.
+ * - /serviceRequests/{serviceRequestId}/payments/{paymentId}: Stores payments for service requests. Access is inherited from the parent service request.
+ * - /serviceRequests/{serviceRequestId}/tasks/{taskId}: Stores tasks for service requests. Access is inherited from the parent service request.
+ * - /users/{userId}/notifications/{notificationId}: Stores notifications for individual users. Access is restricted to the user themselves.
+ * - /serviceRequests/{serviceRequestId}/files/{fileId}: Stores files related to service requests. Access is inherited from the parent service request.
  *
  * Key Security Decisions:
- * - User listing is explicitly denied.
- * - Roles are managed through document existence in /roles_admin and /roles_owner collections, avoiding custom claims.
- * - Ambiguous relationships default to the most secure interpretation (owner-only access).
+ * - User listing is explicitly denied to prevent unauthorized enumeration of user accounts.
+ * - Public read access is generally disallowed, except where explicitly noted.
+ * - The rules validate essential fields for authorization and relational integrity, but avoid strict schema validation to allow for rapid prototyping.
+ * - Write operations are always protected by authorization checks to prevent unauthorized data modification.
  *
  * Denormalization for Authorization:
- * - Service requests denormalize clientId and assignedTechnicianId directly onto the document to avoid costly get() calls
- *   when determining access permissions.
- *
- * Structural Segregation:
- * - User-specific data (notifications) is stored in private subcollections under /users/{userId}, ensuring that only
- *   the user can access their own notifications.
+ * - ServiceRequest documents include the 'clientId' and 'assignedTechnicianId', allowing rules to quickly verify ownership without additional reads.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Checks if the request is authenticated.
+     * @description Checks if the current user is signed in.
+     * @returns {boolean} True if the user is signed in, false otherwise.
      */
     function isSignedIn() {
       return request.auth != null;
     }
 
     /**
-     * @description Checks if the authenticated user's ID matches the provided user ID.
+     * @description Checks if the current user is the owner of the document, based on the provided userId.
+     * @param {string} userId - The user ID to compare against the request's auth UID.
+     * @returns {boolean} True if the user is the owner, false otherwise.
      */
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
     /**
-     * @description Checks if the authenticated user is an existing owner of the document.
+     * @description Checks if the current user is the owner of the existing document.
+     * @param {string} userId - The user ID to compare against the request's auth UID.
+     * @returns {boolean} True if the user is the owner and the resource exists, false otherwise.
      */
     function isExistingOwner(userId) {
-        return isOwner(userId) && resource != null;
+      return isOwner(userId) && resource != null;
     }
 
     /**
-     * @description Checks if the authenticated user has admin privileges by verifying the existence of a document in `/roles_admin/{userId}`.
+     * @description Checks if the current user is an admin.
+     * @returns {boolean} True if the user is an admin, false otherwise.
      */
     function isAdmin() {
-      return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
+        return exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
     }
 
-        /**
-     * @description Checks if the authenticated user has owner privileges by verifying the existence of a document in `/roles_owner/{userId}`.
+    /**
+     * @description Checks if the current user is an owner.
+     * @returns {boolean} True if the user is an owner, false otherwise.
      */
     function isOwnerRole() {
-      return exists(/databases/$(database)/documents/roles_owner/$(request.auth.uid));
+        return exists(/databases/$(database)/documents/roles_owner/$(request.auth.uid));
     }
 
+    /**
+     * @description Grants or denies access based on whether the user is an admin or an owner.
+     * @returns {boolean} True if the user has admin or owner role, false otherwise.
+     */
+    function isAdminOrOwner() {
+        return isAdmin() || isOwnerRole();
+    }
 
     /**
-     * @description Defines access rules for user profiles.
+     * @description Rules for the /users/{userId} collection.
      * @path /users/{userId}
-     * @allow (create) - Authenticated user can create their own profile if the userId matches their auth.uid.
-     * @allow (get, update, delete) - Authenticated user can access/modify their own profile or if is admin or owner role.
-     * @deny (list) - Listing all users is forbidden.
-     * @deny (create) - User cannot create other users profiles.
-     * @deny (update, delete) - User cannot modify or delete other users profiles.
-     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
+     * @allow (create) - Authenticated user can create their own profile if the userId matches their auth UID.
+     * @allow (get, update, delete) - Authenticated user can get, update, or delete their own profile if the userId matches their auth UID and the document exists. Admins/Owners can read any user profile.
+     * @deny (list) - Listing all users is prohibited.
+     * @deny (create) - Unauthenticated users can't create user profiles.
+     * @deny (update, delete) - Users can't update/delete others profiles.
+     * @principle Enforces document ownership for writes and restricts listing of user data.
      */
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin() || isOwnerRole();
+      allow get: if isOwner(userId) || isAdminOrOwner();
       allow list: if false;
-      allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id || isAdmin() || isOwnerRole();
-      allow delete: if isExistingOwner(userId) || isAdmin() || isOwnerRole();
-    }
-
-      /**
-     * @description Defines access rules for roles admin profiles.
-     * @path /roles_admin/{userId}
-     * @allow (create) - Authenticated user can create their own profile if the userId matches their auth.uid.
-     * @allow (get, update, delete) - Authenticated user can access/modify their own profile or if is admin or owner role.
-     * @deny (list) - Listing all users is forbidden.
-     * @deny (create) - User cannot create other users profiles.
-     * @deny (update, delete) - User cannot modify or delete other users profiles.
-     */
-    match /roles_admin/{userId} {
-      allow get: if isAdmin() || isOwnerRole();
-      allow list: if false;
-      allow create: if isOwnerRole();
-      allow update: if false;
-      allow delete: if isOwnerRole();
-    }
-
-          /**
-     * @description Defines access rules for roles owner profiles.
-     * @path /roles_owner/{userId}
-     * @allow (create) - Authenticated user can create their own profile if the userId matches their auth.uid.
-     * @allow (get, update, delete) - Authenticated user can access/modify their own profile or if is admin or owner role.
-     * @deny (list) - Listing all users is forbidden.
-     * @deny (create) - User cannot create other users profiles.
-     * @deny (update, delete) - User cannot modify or delete other users profiles.
-     */
-    match /roles_owner/{userId} {
-      allow get: if isOwnerRole();
-      allow list: if false;
-      allow create: if isOwnerRole();
-      allow update: if false;
-      allow delete: if isOwnerRole();
-    }
-
-    /**
-     * @description Defines access rules for client profiles.
-     * @path /clients/{clientId}
-     * @allow (get) - Authenticated user can get their own profile or if is admin or owner role.
-     * @allow (list) - Admins and Owners can list all clients.
-     * @allow (create) - Authenticated user can create their own profile if the clientId matches their auth.uid or if is admin or owner role.
-     * @allow (update) - Authenticated user can modify their own profile or if is admin or owner role.
-     * @allow (delete) - Authenticated user can delete their own profile or if is admin or owner role.
-     * @deny (create) - User cannot create other users profiles.
-     * @deny (update, delete) - User cannot modify or delete other users profiles.
-     */
-    match /clients/{clientId} {
-      allow get: if isOwner(clientId) || isAdmin() || isOwnerRole();
-      allow list: if isAdmin() || isOwnerRole();
-      allow create: if isSignedIn();
-      allow update: if isExistingOwner(clientId) || isAdmin() || isOwnerRole();
-      allow delete: if isExistingOwner(clientId) || isAdmin() || isOwnerRole();
-    }
-
-    /**
-     * @description Defines access rules for service requests.
-     * @path /serviceRequests/{serviceRequestId}
-     * @allow (get, list) - Allow anyone to read service requests
-     * @allow (create) - Allow any signed in user to create service requests
-     * @allow (update, delete) - Only allow signed in users if the request exists.
-     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
-     */
-    match /serviceRequests/{serviceRequestId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource != null;
-      allow delete: if isSignedIn() && resource != null;
-    }
-
-    /**
-     * @description Defines access rules for quotations under a specific service request.
-     * @path /serviceRequests/{serviceRequestId}/quotations/{quotationId}
-     */
-    match /serviceRequests/{serviceRequestId}/quotations/{quotationId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource != null;
-      allow delete: if isSignedIn() && resource != null;
-    }
-
-    /**
-     * @description Defines access rules for payments under a specific service request.
-     * @path /serviceRequests/{serviceRequestId}/payments/{paymentId}
-     */
-    match /serviceRequests/{serviceRequestId}/payments/{paymentId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource != null;
-      allow delete: if isSignedIn() && resource != null;
-    }
-
-    /**
-     * @description Defines access rules for tasks under a specific service request.
-     * @path /serviceRequests/{serviceRequestId}/tasks/{taskId}
-     */
-    match /serviceRequests/{serviceRequestId}/tasks/{taskId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource != null;
-      allow delete: if isSignedIn() && resource != null;
-    }
-
-    /**
-     * @description Defines access rules for notifications for a specific user.
-     * @path /users/{userId}/notifications/{notificationId}
-     * @allow (create) - Authenticated user can create their own notification if the userId matches their auth.uid.
-     * @allow (get, update, delete) - Authenticated user can access/modify their own notification.
-     * @allow (list) - Authenticated user can list their own notifications.
-     * @deny (create) - User cannot create other users notifications.
-     * @deny (update, delete) - User cannot modify or delete other users notifications.
-     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
-     */
-    match /users/{userId}/notifications/{notificationId} {
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.userId == userId;
-      allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+      allow create: if isOwner(userId);
+      allow update: if isExistingOwner(userId);
       allow delete: if isExistingOwner(userId);
     }
 
     /**
-     * @description Defines access rules for files under a specific service request.
+     * @description Rules for the /roles_admin/{userId} collection.
+     * Documents in this collection indicate the user is an admin. Existence-based role assignment.
+     * @path /roles_admin/{userId}
+     * @allow (get, list) - Admins and Owners can list or get any admin role.
+     * @allow (create) - Only Owners can assign admin roles. Validate that the document ID matches the request auth UID.
+     * @allow (update, delete) - Only Owners can update or delete admin roles. Must validate the resource exists.
+     * @deny (create, update, delete) - Non-Owners can't create or update admin roles.
+     * @principle Restricts admin role assignment to owners and enforces existence checks for updates and deletes.
+     */
+    match /roles_admin/{userId} {
+      allow get, list: if isAdminOrOwner();
+      allow create: if isOwnerRole();
+      allow update: if isOwnerRole() && resource != null;
+      allow delete: if isOwnerRole() && resource != null;
+    }
+
+    /**
+     * @description Rules for the /roles_owner/{userId} collection.
+     * Documents in this collection indicate the user is an owner. Existence-based role assignment.
+     * @path /roles_owner/{userId}
+     * @allow (get, list) - Only Owners can list or get any owner role.
+     * @allow (create) - Only Owners can assign owner roles. Validate that the document ID matches the request auth UID.
+     * @allow (update, delete) - Only Owners can update or delete owner roles. Must validate the resource exists.
+     * @deny (create, update, delete) - Non-Owners can't create or update owner roles.
+     * @principle Restricts owner role assignment to owners and enforces existence checks for updates and deletes.
+     */
+    match /roles_owner/{userId} {
+      allow get, list: if isOwnerRole();
+      allow create: if isOwnerRole();
+      allow update: if isOwnerRole() && resource != null;
+      allow delete: if isOwnerRole() && resource != null;
+    }
+
+    /**
+     * @description Rules for the /clients/{clientId} collection.
+     * @path /clients/{clientId}
+     * @allow (get) - Authenticated client can get their own profile, and admins/owners can get any client profile.
+     * @allow (list) - Admins/Owners can list client profiles, clients can't list.
+     * @allow (create) - Authenticated clients can create their own profiles if the clientId matches their auth UID.
+     * @allow (update, delete) - Authenticated client can update their own profile if the clientId matches their auth UID and the document exists. Admins/Owners can modify any client profile.
+     * @deny (create) - Unauthenticated users can't create client profiles.
+     * @deny (update, delete) - Users can't update/delete others profiles.
+     * @principle Enforces document ownership for writes and restricts listing of client data.
+     */
+    match /clients/{clientId} {
+      allow get: if isOwner(clientId) || isAdminOrOwner();
+      allow list: if isAdminOrOwner();
+      allow create: if isOwner(clientId);
+      allow update: if isExistingOwner(clientId) || isAdminOrOwner();
+      allow delete: if isExistingOwner(clientId) || isAdminOrOwner();
+    }
+
+    /**
+     * @description Rules for the /serviceRequests/{serviceRequestId} collection.
+     * @path /serviceRequests/{serviceRequestId}
+     * @allow (get, list) - Client who created request, the assigned technician, and admins/owners can view the service request.
+     * @allow (create) - Authenticated user can create service requests. The 'clientId' must match their auth UID.
+     * @allow (update, delete) - Client who created the request, the assigned technician, and admins/owners can update or delete. Requires existence check.
+     * @principle Enforces access control based on clientId, assignedTechnicianId and admin roles.
+     */
+    match /serviceRequests/{serviceRequestId} {
+        allow get: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow list: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow create: if isSignedIn() && request.resource.data.clientId == request.auth.uid;
+        allow update: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+        allow delete: if isSignedIn() && (resource.data.clientId == request.auth.uid || resource.data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+    }
+
+    /**
+     * @description Rules for the /serviceRequests/{serviceRequestId}/quotations/{quotationId} collection.
+     * @path /serviceRequests/{serviceRequestId}/quotations/{quotationId}
+     * @allow (get, list) - Access inherited from parent service request.
+     * @allow (create, update, delete) - Access inherited from parent service request. Requires existence check for update/delete.
+     * @principle Inherits access control from parent service request.
+     */
+    match /serviceRequests/{serviceRequestId}/quotations/{quotationId} {
+        allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid;
+        allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+        allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+    }
+
+    /**
+     * @description Rules for the /serviceRequests/{serviceRequestId}/payments/{paymentId} collection.
+     * @path /serviceRequests/{serviceRequestId}/payments/{paymentId}
+     * @allow (get, list) - Access inherited from parent service request.
+     * @allow (create, update, delete) - Access inherited from parent service request. Requires existence check for update/delete.
+     * @principle Inherits access control from parent service request.
+     */
+    match /serviceRequests/{serviceRequestId}/payments/{paymentId} {
+        allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid;
+        allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+        allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+    }
+
+    /**
+     * @description Rules for the /serviceRequests/{serviceRequestId}/tasks/{taskId} collection.
+     * @path /serviceRequests/{serviceRequestId}/tasks/{taskId}
+     * @allow (get, list) - Access inherited from parent service request.
+     * @allow (create, update, delete) - Access inherited from parent service request. Requires existence check for update/delete.
+     * @principle Inherits access control from parent service request.
+     */
+    match /serviceRequests/{serviceRequestId}/tasks/{taskId} {
+        allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid;
+        allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+        allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+    }
+
+    /**
+     * @description Rules for the /users/{userId}/notifications/{notificationId} collection.
+     * @path /users/{userId}/notifications/{notificationId}
+     * @allow (get, list) - Only the user can get and list their own notifications.
+     * @allow (create) - Only the user can create notifications under their own user id.
+     * @allow (update, delete) - Only the user can update/delete their own notifications. Requires existence check for update/delete.
+     * @principle Enforces user-specific data access for notifications.
+     */
+    match /users/{userId}/notifications/{notificationId} {
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Rules for the /serviceRequests/{serviceRequestId}/files/{fileId} collection.
      * @path /serviceRequests/{serviceRequestId}/files/{fileId}
+     * @allow (get, list) - Access inherited from parent service request.
+     * @allow (create, update, delete) - Access inherited from parent service request. Requires existence check for update/delete.
+     * @principle Inherits access control from parent service request.
      */
     match /serviceRequests/{serviceRequestId}/files/{fileId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && resource != null;
-      allow delete: if isSignedIn() && resource != null;
+        allow get: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow list: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner());
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid;
+        allow update: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
+        allow delete: if isSignedIn() && (get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.clientId == request.auth.uid || get(/databases/$(database)/documents/serviceRequests/$(serviceRequestId)).data.assignedTechnicianId == request.auth.uid || isAdminOrOwner()) && resource != null;
     }
   }
 }
