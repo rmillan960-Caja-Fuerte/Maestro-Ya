@@ -1,173 +1,220 @@
 'use client';
-import { useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { ArrowLeft, User, Phone, Mail, MapPin, Wrench, DollarSign, Calendar, Upload } from 'lucide-react';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import Image from 'next/image';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-import { Separator } from '@/components/ui/separator';
-import { WhatsAppGenerator } from '@/components/whatsapp-generator';
-import { doc, getDoc } from 'firebase/firestore';
-import { Job, Client, User as UserType } from '@/lib/definitions';
-import { useEffect, useState } from 'react';
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { db } from "@/firebase";
+import { Master, ServiceRequest, ServiceRequestStatus } from "@/lib/definitions";
+import { doc, updateDoc, collection, getDocs } from "firebase/firestore";
+import { ArrowLeft, MessageCircle, UserPlus } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { generateWhatsAppMessage } from "@/lib/ai/whatsapp-message-generation";
 
-const statusStyles: { [key: string]: string } = {
-  'Completado': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-  'En Progreso': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-  'Pendiente de Pago': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-  'Cancelado': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
-  'Cotización': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-  'Aprobado': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
+const statusColors: { [key in ServiceRequestStatus]: string } = {
+    Quote: "bg-gray-500",
+    Pending: "bg-yellow-500",
+    Approved: "bg-blue-500",
+    InProgress: "bg-purple-500",
+    Completed: "bg-green-500",
+    Closed: "bg-black",
+    Canceled: "bg-red-500",
+    Warranty: "bg-orange-500",
 };
 
-export default function JobDetailPage({ params }: { params: { id: string } }) {
-  const firestore = useFirestore();
-  const jobRef = useMemoFirebase(() => doc(firestore, 'serviceRequests', params.id), [firestore, params.id]);
-  const { data: job, isLoading } = useDoc<Job>(jobRef);
-  const [client, setClient] = useState<Client | null>(null);
-  const [technician, setTechnician] = useState<UserType | null>(null);
+export default function TrabajoDetallePage() {
+    const params = useParams();
+    const router = useRouter();
+    const { id } = params;
+    
+    const [job, setJob] = useState<ServiceRequest | null>(null);
+    const [masters, setMasters] = useState<Master[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [selectedMasterId, setSelectedMasterId] = useState<string | null>(null);
+    const [isAssigning, setIsAssigning] = useState(false);
 
-  useEffect(() => {
-    const fetchRelatedData = async () => {
-      if (job) {
-        if (job.clientRef) {
-          const clientSnap = await getDoc(job.clientRef);
-          if (clientSnap.exists()) {
-            setClient(clientSnap.data() as Client);
-          }
+    const jobRef = id ? doc(db, `serviceRequests/${id}`) : null;
+
+    useEffect(() => {
+        const fetchJobAndMasters = async () => {
+            setIsLoading(true);
+            try {
+                if (jobRef) {
+                    const jobSnap = await getDoc(jobRef);
+                    if (jobSnap.exists()) {
+                        setJob({ id: jobSnap.id, ...jobSnap.data() } as ServiceRequest);
+                    }
+                }
+                const mastersQuery = await getDocs(collection(db, 'masters'));
+                const mastersData = mastersQuery.docs.map(doc => ({ id: doc.id, ...doc.data() } as Master));
+                setMasters(mastersData);
+            } catch (error) {
+                console.error("Error fetching data: ", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchJobAndMasters();
+    }, [id]);
+
+    const changeStatus = async (newStatus: ServiceRequestStatus) => {
+        if (!jobRef) return;
+        try {
+            await updateDoc(jobRef, { status: newStatus });
+            setJob(prev => prev ? { ...prev, status: newStatus } : null);
+        } catch (error) {
+            console.error("Error updating status: ", error);
         }
-        if (job.assignedTechnicianRef) {
-          const techSnap = await getDoc(job.assignedTechnicianRef);
-          if (techSnap.exists()) {
-            setTechnician(techSnap.data() as UserType);
-          }
-        }
-      }
     };
-    fetchRelatedData();
-  }, [job]);
 
+    const handleAssignMaster = async () => {
+        if (!jobRef || !selectedMasterId) return;
+        setIsAssigning(true);
+        try {
+            const selectedMaster = masters.find(m => m.id === selectedMasterId);
+            if (selectedMaster) {
+                await updateDoc(jobRef, { assignedMaster: selectedMaster });
+                setJob(prev => prev ? { ...prev, assignedMaster: selectedMaster } : null);
+            }
+        } catch (error) {
+            console.error("Error assigning master: ", error);
+        } finally {
+            setIsAssigning(false);
+        }
+    };
 
-  if (isLoading) {
-    return <div>Cargando...</div>;
-  }
+    const handleWhatsAppClick = () => {
+        if (!job) return;
+        const message = generateWhatsAppMessage(job);
+        const phone = job.client.phone.replace(/[^0-9]/g, '');
+        const url = `https://wa.me/${phone}?text=${message}`;
+        window.open(url, '_blank');
+        if (job.status === 'Quote') {
+            changeStatus('Pending');
+        }
+    };
 
-  if (!job) {
-    notFound();
-  }
+    if (isLoading) {
+        return <div className="flex justify-center items-center h-screen">Cargando detalles...</div>;
+    }
 
-  const enrichedJob = {
-      ...job,
-      client: client,
-      technician: technician
-  }
+    if (!job) {
+        return <div className="flex justify-center items-center h-screen">Trabajo no encontrado.</div>;
+    }
 
-  return (
-    <>
-      <div className="flex items-center gap-4">
-        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
-          <Link href="/dashboard/trabajos">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="sr-only">Atrás</span>
-          </Link>
-        </Button>
-        <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0 font-headline">
-          {job.description}
-        </h1>
-        <Badge variant="outline" className={cn("ml-auto sm:ml-0", statusStyles[job.status])}>
-          {job.status}
-        </Badge>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7 lg:gap-8">
-        <div className="grid auto-rows-max items-start gap-4 lg:col-span-4 lg:gap-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Descripción del Trabajo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">{job.description}</p>
-            </CardContent>
-          </Card>
-          
-          {enrichedJob.client && <WhatsAppGenerator job={enrichedJob as Job} />}
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Fotos y Archivos</CardTitle>
-              <Button size="sm" variant="outline"><Upload className="h-4 w-4 mr-2" />Cargar Archivo</Button>
-            </CardHeader>
-            <CardContent>
-              {job.images && job.images.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {job.images.map((image, index) => (
-                    <div key={index} className="relative aspect-video rounded-lg overflow-hidden">
-                       <Image
-                        src={image.url}
-                        alt={`Foto del trabajo ${index + 1}`}
-                        fill
-                        className="object-cover"
-                        data-ai-hint={image.hint}
-                       />
-                    </div>
-                  ))}
+    return (
+        <div>
+            <div className="flex items-center gap-4 mb-4">
+                 <Button asChild variant="outline" size="icon" className="h-7 w-7">
+                    <Link href="/dashboard/trabajos">
+                        <ArrowLeft className="h-4 w-4" />
+                        <span className="sr-only">Volver a Trabajos</span>
+                    </Link>
+                </Button>
+                <h1 className="flex-1 shrink-0 whitespace-nowrap text-xl font-semibold tracking-tight sm:grow-0">
+                    Detalle del Trabajo
+                </h1>
+                <Badge variant="secondary" className={`${statusColors[job.status]} text-white`}>{job.status}</Badge>
+            </div>
+            <div className="grid gap-4 md:grid-cols-[1fr_250px] lg:grid-cols-3 lg:gap-8">
+                <div className="grid auto-rows-max items-start gap-4 lg:col-span-2 lg:gap-8">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Descripción del Servicio</CardTitle>
+                            <CardDescription>{job.category}</CardDescription>
+                        </CardHeader>
+                        <CardContent><p>{job.description}</p></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader><CardTitle>Información del Cliente</CardTitle></CardHeader>
+                        <CardContent>
+                            <p><strong>{job.client.firstName} {job.client.lastName}</strong></p>
+                            <p>{job.client.address}</p>
+                            <p>{job.client.phone}</p>
+                        </CardContent>
+                    </Card>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No hay fotos para este trabajo.</p>
-              )}
-            </CardContent>
-          </Card>
+                <div className="grid auto-rows-max items-start gap-4 lg:gap-8">
+                    <Card>
+                        <CardHeader><CardTitle>Acciones</CardTitle></CardHeader>
+                        <CardContent className="grid gap-2">
+                            <Button size="sm" className="gap-1" onClick={handleWhatsAppClick}>
+                                <MessageCircle className="h-3.5 w-3.5" />
+                                Enviar WhatsApp (Cotización)
+                            </Button>
+                             {job.status === 'Pending' && (
+                                <Button size="sm" variant="secondary" onClick={() => changeStatus('Approved')}>
+                                    Aprobar Cotización (Manual)
+                                </Button>
+                            )}
+                             {job.status === 'Approved' && (
+                                <Button size="sm" variant="secondary" onClick={() => changeStatus('InProgress')}>
+                                    Iniciar Trabajo (Pago Recibido)
+                                </Button>
+                            )}
+                            {job.status === 'InProgress' && (
+                                <Button size="sm" variant="secondary" onClick={() => changeStatus('Completed')}>
+                                    Marcar como Completado
+                                </Button>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                     <Card>
+                        <CardHeader><CardTitle>Maestro Asignado</CardTitle></CardHeader>
+                        <CardContent className="grid gap-4">
+                            {job.assignedMaster ? (
+                                <div>
+                                    <p className="font-semibold">{job.assignedMaster.name}</p>
+                                    <Button variant="outline" size="sm" className="mt-2" onClick={() => updateDoc(jobRef, { assignedMaster: null }).then(() => setJob(prev => prev ? { ...prev, assignedMaster: undefined } : null))}>
+                                        Re-asignar
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="grid gap-2">
+                                     <Select onValueChange={setSelectedMasterId} value={selectedMasterId || ''}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Seleccionar Maestro" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {masters.map(master => (
+                                                <SelectItem key={master.id} value={master.id!}>
+                                                    {master.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button onClick={handleAssignMaster} disabled={!selectedMasterId || isAssigning}>
+                                        {isAssigning ? "Asignando..." : "Asignar Maestro"}
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader><CardTitle>Finanzas</CardTitle></CardHeader>
+                        <CardContent className="grid gap-2 text-sm">
+                            <div className="flex justify-between">
+                                <span>Subtotal:</span>
+                                <span>${job.quoteSubtotal?.toFixed(2)}</span>
+                            </div>
+                            {job.quoteIncludesVat && (
+                                 <div className="flex justify-between">
+                                    <span>IVA (15%):</span>
+                                    <span>${job.quoteVat?.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between font-bold border-t pt-2 mt-2">
+                                <span>Total:</span>
+                                <span>${job.quoteTotal?.toFixed(2)}</span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
         </div>
-        <div className="grid auto-rows-max items-start gap-4 lg:col-span-3 lg:gap-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Detalles del Trabajo</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-                <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground flex items-center gap-2"><DollarSign className="h-4 w-4"/>Monto Cotizado</span>
-                    <span className="font-semibold">${(job.quoteAmount || 0).toFixed(2)}</span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground flex items-center gap-2"><Calendar className="h-4 w-4"/>Fecha Creación</span>
-                    <span className="font-semibold">{new Date(job.requestDate).toLocaleDateString('es-EC')}</span>
-                </div>
-            </CardContent>
-          </Card>
-          {client && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Información del Cliente</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 text-sm">
-                <div className="font-semibold flex items-center gap-2"><User className="h-4 w-4"/>{client.firstName} {client.lastName}</div>
-                <div className="text-muted-foreground flex items-center gap-2"><Phone className="h-4 w-4"/>{client.phone}</div>
-                <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{client.email}</div>
-                <div className="text-muted-foreground flex items-center gap-2"><MapPin className="h-4 w-4"/>{client.address}</div>
-              </CardContent>
-            </Card>
-          )}
-          {technician && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Técnico Asignado</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 text-sm">
-                <div className="flex items-center gap-3">
-                  <Image src={"https://picsum.photos/seed/tech/40/40"} alt="Avatar" width={40} height={40} className="rounded-full" data-ai-hint="user avatar"/>
-                  <div>
-                    <div className="font-semibold flex items-center gap-2"><Wrench className="h-4 w-4"/>{technician.firstName} {technician.lastName}</div>
-                    <div className="text-muted-foreground flex items-center gap-2"><Mail className="h-4 w-4"/>{technician.email}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
-    </>
-  );
+    );
 }

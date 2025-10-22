@@ -71,7 +71,7 @@ export default function CotizacionesPage() {
                     </CardDescription>
                 </div>
                 <Button asChild size="sm" className="ml-auto gap-1">
-                    <Link href="#">
+                    <Link href="/dashboard/trabajos/nuevo">
                         <PlusCircle className="h-4 w-4" />
                         Nueva Cotización
                     </Link>

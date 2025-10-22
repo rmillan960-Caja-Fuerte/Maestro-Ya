@@ -1,55 +1,79 @@
-import { DocumentReference } from "firebase/firestore";
+
+import { Timestamp } from 'firebase/firestore';
 
 export type User = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  role: 'owner' | 'admin' | 'employee';
-  address: string;
-  employeeType?: string;
+    id?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: 'Admin' | 'Owner' | 'Technician';
+    createdAt?: Timestamp | Date;
+    lastLogin?: Timestamp | Date;
 };
 
 export type Client = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  email: string;
-  address: string;
+    id?: string;
+    firstName: string;
+    lastName: string;
+    address: string;
+    phone: string;
+    createdAt: any; 
 };
 
-export type Quotation = {
-  id: string;
-  serviceRequestId: string;
-  serviceRequestRef?: DocumentReference;
-  description: string;
-  amount: number;
-  creationDate: string;
-  expiryDate: string;
-  initialPaymentPercentage: number;
-  guaranteeDays: number;
+export type Master = {
+    id?: string;
+    firstName: string;
+    lastName: string;
+    nationalId: string;
+    phone: string;
+    email: string;
+    category: string;
+    workZone: string;
+    criminalRecordUrl?: string; // Link to the uploaded PDF file
+    createdAt: any; 
 };
 
-export type JobStatus = 'Cotización' | 'Aprobado' | 'En Progreso' | 'Completado' | 'Cancelado' | 'Pendiente de Pago';
+export type ServiceRequestStatus = 
+    | 'Quote'       // Cotización creada, pendiente de envío o aprobación
+    | 'Pending'     // Cotización enviada, esperando respuesta del cliente
+    | 'Approved'    // Cliente aprobó, esperando pago inicial o programación
+    | 'InProgress'  // Trabajo en curso
+    | 'Completed'   // Trabajo finalizado, esperando pago final
+    | 'Closed'      // Pago final recibido, trabajo cerrado
+    | 'Canceled'    // Trabajo cancelado por cliente o empresa
+    | 'Warranty'    // Trabajo en período de garantía
 
-export type ServiceRequest = {
-  id: string;
-  clientId: string;
-  clientRef?: DocumentReference;
-  description: string;
-  requestDate: string;
-  status: JobStatus;
-  assignedTechnicianId?: string;
-  assignedTechnicianRef?: DocumentReference;
-  category: string;
-  quoteAmount?: number; // Denormalized from Quotation for easier access
-  images?: { url: string, hint: string }[];
-};
 
-// Combining ServiceRequest with related data for easier use in components
-export interface Job extends ServiceRequest {
-  client?: Client;
-  technician?: User;
+export interface ServiceRequest {
+    id?: string;
+    clientId: string; 
+    client: Client; // Denormalized client data
+    description: string;
+    category: string;
+    status: ServiceRequestStatus;
+    assignedMaster?: Master;
+    createdAt: number; 
+
+    // Quote details
+    quoteSubtotal?: number;
+    quoteVat?: number;
+    quoteTotal?: number;
+    quoteIncludesVat?: boolean;
+    quoteSentAt?: number;
+    quoteApprovedAt?: number;
+
+    // Financials
+    initialPayment?: number;
+    finalPayment?: number;
+    paymentMethod?: string;
+
+    // Scheduling
+    scheduledAt?: number;
+    completedAt?: number;
+
+    // Warranty
+    warrantyPeriodDays?: number; // e.g., 90
+
+    // Communication
+    notes?: Array<{ note: string; createdAt: number; author: string; }>;
 }

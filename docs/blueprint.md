@@ -1,4 +1,4 @@
-# **App Name**: ServiYa
+# **App Name**: maestro-ya
 
 ## Core Features:
 

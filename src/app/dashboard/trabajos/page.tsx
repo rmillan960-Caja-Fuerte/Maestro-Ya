@@ -1,133 +1,115 @@
 'use client';
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { Job, JobStatus, Client, User } from "@/lib/definitions";
-import { cn } from "@/lib/utils";
-import { collection, doc, getDoc } from "firebase/firestore";
-import { PlusCircle, Wrench, User as UserIcon, DollarSign } from "lucide-react";
-import Link from 'next/link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { db } from "@/firebase";
+import { ServiceRequest } from "@/lib/definitions";
+import { collection, orderBy, query, getDocs } from "firebase/firestore";
+import { PlusCircle, MoreHorizontal } from "lucide-react";
+import Link from "next/link";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useState } from "react";
 
-const statusConfig: { [key in JobStatus]: { color: string, icon: React.ReactNode } } = {
-  'Cotización': { color: 'border-gray-500', icon: <DollarSign className="h-4 w-4" /> },
-  'Aprobado': { color: 'border-purple-500', icon: <Wrench className="h-4 w-4" /> },
-  'En Progreso': { color: 'border-blue-500', icon: <Wrench className="h-4 w-4" /> },
-  'Pendiente de Pago': { color: 'border-yellow-500', icon: <DollarSign className="h-4 w-4" /> },
-  'Completado': { color: 'border-green-500', icon: <Wrench className="h-4 w-4" /> },
-  'Cancelado': { color: 'border-red-500', icon: <Wrench className="h-4 w-4" /> },
-};
-
-
-interface EnrichedJob extends Job {
-    client?: Client;
-    technician?: User;
-}
-
-const JobCard = ({ job: initialJob }: { job: Job }) => {
-    const [job, setJob] = useState<EnrichedJob>(initialJob);
-    const firestore = useFirestore();
-
-    useEffect(() => {
-        const fetchRelatedData = async () => {
-            let clientData: Client | undefined = undefined;
-            let technicianData: User | undefined = undefined;
-
-            if (initialJob.clientRef) {
-                try {
-                    const clientSnap = await getDoc(initialJob.clientRef);
-                    if (clientSnap.exists()) {
-                        clientData = clientSnap.data() as Client;
-                    }
-                } catch (e) { console.error("Error fetching client", e)}
-            }
-            if (initialJob.assignedTechnicianRef) {
-                try {
-                    const techSnap = await getDoc(initialJob.assignedTechnicianRef);
-                    if (techSnap.exists()) {
-                        technicianData = techSnap.data() as User;
-                    }
-                } catch(e) { console.error("Error fetching technician", e)}
-            }
-            setJob({ ...initialJob, client: clientData, technician: technicianData });
-        };
-
-        fetchRelatedData();
-    }, [initialJob, firestore]);
-
-  return (
-    <Link href={`/dashboard/trabajos/${job.id}`} className="block">
-      <Card className="mb-4 hover:shadow-lg transition-shadow duration-200">
-        <CardContent className="p-4">
-          <h4 className="font-semibold mb-2">{job.description}</h4>
-          <p className="text-sm text-muted-foreground mb-2">{job.client?.firstName} {job.client?.lastName}</p>
-          <div className="flex justify-between items-center text-sm">
-            <span className="font-bold text-primary">${(job.quoteAmount || 0).toFixed(2)}</span>
-            {job.technician && (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <UserIcon className="h-3 w-3" />
-                <span>{job.technician.firstName}</span>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-};
-
-const KanbanColumn = ({ title, jobs, status }: { title: string, jobs: Job[], status: JobStatus }) => {
-  const { color } = statusConfig[status];
-  return (
-    <div className="flex-1 min-w-[300px] bg-muted/50 rounded-lg">
-      <div className={cn("p-4 border-t-4 rounded-t-lg", color)}>
-        <h3 className="font-semibold">{title} ({jobs.length})</h3>
-      </div>
-      <div className="p-4 pt-2 overflow-y-auto h-[calc(100vh-250px)]">
-        {jobs.map(job => <JobCard key={job.id} job={job} />)}
-      </div>
-    </div>
-  );
+const statusColors: { [key in ServiceRequest["status"]]: string } = {
+    Quote: "bg-gray-500",
+    Pending: "bg-yellow-500",
+    Approved: "bg-blue-500",
+    InProgress: "bg-purple-500",
+    Completed: "bg-green-500",
+    Closed: "bg-black",
+    Canceled: "bg-red-500",
+    Warranty: "bg-orange-500",
 };
 
 export default function TrabajosPage() {
-  const firestore = useFirestore();
-  const jobsRef = useMemoFirebase(() => collection(firestore, 'serviceRequests'), [firestore]);
-  const { data: jobs, isLoading } = useCollection<Job>(jobsRef);
-    
-  const columns: { status: JobStatus, title: string }[] = [
-    { status: 'Cotización', title: 'Cotización' },
-    { status: 'Aprobado', title: 'Aprobado' },
-    { status: 'En Progreso', title: 'En Progreso' },
-    { status: 'Pendiente de Pago', title: 'Pendiente de Pago' },
-    { status: 'Completado', title: 'Completado' },
-  ];
+    const [jobs, setJobs] = useState<ServiceRequest[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-  const jobsByStatus = (status: JobStatus) => jobs?.filter(job => job.status === status) || [];
+    useEffect(() => {
+        const fetchJobs = async () => {
+            setIsLoading(true);
+            const jobsQuery = query(collection(db, 'serviceRequests'), orderBy('createdAt', 'desc'));
+            const querySnapshot = await getDocs(jobsQuery);
+            const jobsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ServiceRequest));
+            setJobs(jobsData);
+            setIsLoading(false);
+        };
 
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold md:text-2xl font-headline">Flujo de Trabajos</h1>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Nuevo Trabajo
-        </Button>
-      </div>
-      <div className="flex-1 w-full overflow-x-auto">
-      {isLoading ? <p>Cargando trabajos...</p> :
-        <div className="flex gap-6 pb-4">
-          {columns.map(col => (
-            <KanbanColumn
-              key={col.status}
-              title={col.title}
-              status={col.status}
-              jobs={jobsByStatus(col.status)}
-            />
-          ))}
-        </div>
-      }
-      </div>
-    </>
-  );
+        fetchJobs();
+    }, []);
+
+    return (
+        <Card>
+            <CardHeader className="flex flex-row items-center">
+                <div className="grid gap-2">
+                    <CardTitle>Gestión de Trabajos</CardTitle>
+                    <CardDescription>
+                        Supervise todas las cotizaciones y trabajos en curso.
+                    </CardDescription>
+                </div>
+                <Button asChild size="sm" className="ml-auto gap-1">
+                    <Link href="/dashboard/trabajos/nuevo">
+                        <PlusCircle className="h-4 w-4" />
+                        Crear Cotización
+                    </Link>
+                </Button>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead>Descripción</TableHead>
+                            <TableHead>Maestro Asignado</TableHead>
+                            <TableHead>Estado</TableHead>
+                            <TableHead>Monto</TableHead>
+                            <TableHead>
+                                <span className="sr-only">Acciones</span>
+                            </TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {isLoading && <TableRow><TableCell colSpan={6}>Cargando trabajos...</TableCell></TableRow>}
+                        {!isLoading && jobs.map(job => (
+                            <TableRow key={job.id}>
+                                <TableCell className="font-medium">{job.client.firstName} {job.client.lastName}</TableCell>
+                                <TableCell>{job.description}</TableCell>
+                                <TableCell>{job.assignedMaster ? job.assignedMaster.name : <span className="text-gray-500">No asignado</span>}</TableCell>
+                                <TableCell>
+                                    <Badge variant="secondary" className={`${statusColors[job.status]} text-white`}>
+                                        {job.status}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell>${job.quoteTotal?.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">
+                                     <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" className="h-8 w-8 p-0">
+                                                <span className="sr-only">Abrir menú</span>
+                                                <MoreHorizontal className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                                            <DropdownMenuItem asChild>
+                                                <Link href={`/dashboard/trabajos/${job.id}`}>Ver detalles</Link>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem>Editar</DropdownMenuItem>
+                                            <DropdownMenuItem className="text-red-600">Eliminar</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                        {!isLoading && jobs.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={6} className="text-center h-24">No hay trabajos para mostrar. Comience creando una cotización.</TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    );
 }

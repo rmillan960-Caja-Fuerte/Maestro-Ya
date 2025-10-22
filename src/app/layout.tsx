@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { FirebaseClientProvider } from '@/firebase';
 
 export const metadata: Metadata = {
-  title: 'ServiYa',
+  title: 'maestro-ya',
   description: 'Gestión de servicios y cotizaciones para reparaciones del hogar.',
 };
 

@@ -10,6 +10,7 @@ import {
   Contact,
   LogOut,
   Settings,
+  Hammer, // <-- IMPORTADO
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/dashboard/cotizaciones', label: 'Cotizaciones', icon: FileText },
   { href: '/dashboard/clientes', label: 'Clientes', icon: Contact },
   { href: '/dashboard/equipo', label: 'Equipo', icon: Users },
+  { href: '/dashboard/maestro', label: 'Portal Maestro', icon: Hammer }, // <-- AÑADIDO
 ];
 
 export function DashboardNav() {
