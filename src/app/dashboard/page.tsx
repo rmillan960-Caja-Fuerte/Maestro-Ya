@@ -39,7 +39,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useCollection, useFirestore, useMemoFirebase } from "@/firebase"
 import { collection, query } from "firebase/firestore"
-import { Job, User } from "@/lib/definitions"
+import { Job } from "@/lib/definitions"
 
 export default function Dashboard() {
 
@@ -54,16 +54,14 @@ export default function Dashboard() {
   
   const firestore = useFirestore();
   const serviceRequestsQuery = useMemoFirebase(() => query(collection(firestore, 'serviceRequests')), [firestore]);
-  const usersQuery = useMemoFirebase(() => query(collection(firestore, 'users')), [firestore]);
 
   const { data: jobs, isLoading: jobsLoading } = useCollection<Job>(serviceRequestsQuery);
-  const { data: users, isLoading: usersLoading } = useCollection<User>(usersQuery);
 
   const activeJobs = jobs?.filter(j => j.status === 'En Progreso' || j.status === 'Aprobado').length || 0;
   const pendingPayments = jobs?.filter(j => j.status === 'Pendiente de Pago').length || 0;
   const newQuotes = jobs?.filter(j => j.status === 'Cotización').length || 0;
   const totalRevenue = jobs?.filter(j => j.status === 'Completado').reduce((acc, job) => acc + (job.quoteAmount || 0), 0) || 0;
-  const isLoading = jobsLoading || usersLoading;
+  const isLoading = jobsLoading;
 
   return (
     <>
@@ -127,7 +125,7 @@ export default function Dashboard() {
         </Card>
       </div>
       <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+        <Card className="xl:col-span-3">
           <CardHeader className="flex flex-row items-center">
             <div className="grid gap-2">
               <CardTitle>Transacciones Recientes</CardTitle>
@@ -189,36 +187,6 @@ export default function Dashboard() {
                 )}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Equipo Activo</CardTitle>
-            <CardDescription>
-              Técnicos con trabajos asignados recientemente.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-8">
-            {users && users.filter(u => u.role === 'employee').slice(0, 4).map(user => (
-              <div key={user.id} className="flex items-center gap-4">
-                <Avatar className="hidden h-9 w-9 sm:flex">
-                  <AvatarImage src={"https://picsum.photos/seed/user/40/40"} alt="Avatar" data-ai-hint="user avatar" />
-                  <AvatarFallback>{user.firstName.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="grid gap-1">
-                  <p className="text-sm font-medium leading-none">
-                    {user.firstName} {user.lastName}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {user.email}
-                  </p>
-                </div>
-                <div className="ml-auto font-medium">+{jobs?.filter(j => j.assignedTechnicianId === user.id).length || 0} trab.</div>
-              </div>
-            ))}
-            {(!users || users.filter(u => u.role === 'employee').length === 0) && (
-                <p className="text-sm text-muted-foreground">No hay técnicos activos.</p>
-            )}
           </CardContent>
         </Card>
       </div>
