@@ -2,4 +2,4 @@
 # Maestro-Ya
 
 ---
-*Triggering new deployment to fix build error.*
+*Triggering new deployment after granting secret access.*
