@@ -3,63 +3,59 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
+import { db } from "@/firebase";
 import { ServiceRequest } from "@/lib/definitions";
-import { collection, query, getDoc, orderBy } from "firebase/firestore";
+import { collection, orderBy, query, getDocs } from "firebase/firestore";
 import { PlusCircle, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useState } from "react";
 
-const statusColors: { [key: string]: string } = {
+const statusColors: { [key in ServiceRequest["status"]]: string } = {
     Quote: "bg-gray-500",
     Pending: "bg-yellow-500",
-    Aprobado: "bg-blue-500",
+    Approved: "bg-blue-500",
     InProgress: "bg-purple-500",
     Completed: "bg-green-500",
     Closed: "bg-black",
-    Cancelado: "bg-red-500",
+    Canceled: "bg-red-500",
     Warranty: "bg-orange-500",
 };
 
+// We are now assuming the client data is embedded in the ServiceRequest object
 interface EnrichedServiceRequest extends ServiceRequest {
-    clientName?: string;
-    quoteTotal?: number; // Ensure this is part of the enriched data
+    clientName: string;
 }
 
 export default function TrabajosPage() {
-    const firestore = useFirestore();
-    // Correctly query the serviceRequests collection
-    const servicesQuery = useMemoFirebase(() => query(collection(firestore, 'serviceRequests'), orderBy('createdAt', 'desc')), [firestore]);
-    const { data: serviceRequests, isLoading } = useCollection<ServiceRequest>(servicesQuery);
-    const [enrichedJobs, setEnrichedJobs] = useState<EnrichedServiceRequest[]>([]);
+    const [jobs, setJobs] = useState<EnrichedServiceRequest[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const enrichJobs = async () => {
-            if (serviceRequests) {
-                const enriched = await Promise.all(serviceRequests.map(async (job) => {
-                    let clientName = 'N/A';
-                    // The client data is stored in clientRef, we need to fetch it
-                    if (job.clientRef) {
-                        try {
-                            const clientSnap = await getDoc(job.clientRef);
-                            if (clientSnap.exists()) {
-                                const clientData = clientSnap.data();
-                                clientName = `${clientData.firstName} ${clientData.lastName}`;
-                            }
-                        } catch (error) {
-                            console.error("Error fetching client data: ", error);
-                        }
-                    }
-                    // Ensure quoteTotal is passed through, assuming it exists on the job document
-                    return { ...job, clientName, quoteTotal: job.quoteTotal || 0 };
-                }));
-                setEnrichedJobs(enriched);
+        const fetchJobs = async () => {
+            setIsLoading(true);
+            try {
+                const jobsQuery = query(collection(db, 'serviceRequests'), orderBy('createdAt', 'desc'));
+                const querySnapshot = await getDocs(jobsQuery);
+                const jobsData = querySnapshot.docs.map(doc => {
+                    const data = doc.data() as ServiceRequest;
+                    // Directly use the client data embedded in the job document
+                    const clientName = data.client ? `${data.client.firstName} ${data.client.lastName}` : 'Cliente no especificado';
+                    return {
+                        id: doc.id,
+                        ...data,
+                        clientName,
+                    } as EnrichedServiceRequest;
+                });
+                setJobs(jobsData);
+            } catch (error) {
+                console.error("Error fetching jobs:", error);
             }
+            setIsLoading(false);
         };
 
-        enrichJobs();
-    }, [serviceRequests]);
+        fetchJobs();
+    }, []);
 
     return (
         <Card>
@@ -93,13 +89,13 @@ export default function TrabajosPage() {
                     </TableHeader>
                     <TableBody>
                         {isLoading && <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando trabajos...</TableCell></TableRow>}
-                        {!isLoading && enrichedJobs.map(job => (
+                        {!isLoading && jobs.length > 0 && jobs.map(job => (
                             <TableRow key={job.id}>
                                 <TableCell className="font-medium">{job.clientName}</TableCell>
                                 <TableCell>{job.description}</TableCell>
-                                <TableCell>{job.assignedMaster?.name || <span className="text-gray-500">No asignado</span>}</TableCell>
+                                <TableCell>{job.assignedMaster ? job.assignedMaster.name : <span className="text-gray-500">No asignado</span>}</TableCell>
                                 <TableCell>
-                                    <Badge variant="secondary" className={`${statusColors[job.status] || 'bg-gray-400'} text-white`}>
+                                    <Badge variant="secondary" className={`${statusColors[job.status]} text-white`}>
                                         {job.status}
                                     </Badge>
                                 </TableCell>
@@ -124,9 +120,9 @@ export default function TrabajosPage() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {!isLoading && enrichedJobs.length === 0 && (
+                        {!isLoading && jobs.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center h-24">No hay trabajos para mostrar. Comience creando una cotización.</TableCell>
+                                <TableCell colSpan={6} className="text-center h-24">Trabajo no encontrado.</TableCell>
                             </TableRow>
                         )}
                     </TableBody>
