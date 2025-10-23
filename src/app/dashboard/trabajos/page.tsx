@@ -3,41 +3,63 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { db } from "@/firebase";
+import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
 import { ServiceRequest } from "@/lib/definitions";
-import { collection, orderBy, query, getDocs } from "firebase/firestore";
+import { collection, query, getDoc, orderBy } from "firebase/firestore";
 import { PlusCircle, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useEffect, useState } from "react";
 
-const statusColors: { [key in ServiceRequest["status"]]: string } = {
+const statusColors: { [key: string]: string } = {
     Quote: "bg-gray-500",
     Pending: "bg-yellow-500",
-    Approved: "bg-blue-500",
+    Aprobado: "bg-blue-500",
     InProgress: "bg-purple-500",
     Completed: "bg-green-500",
     Closed: "bg-black",
-    Canceled: "bg-red-500",
+    Cancelado: "bg-red-500",
     Warranty: "bg-orange-500",
 };
 
+interface EnrichedServiceRequest extends ServiceRequest {
+    clientName?: string;
+    quoteTotal?: number; // Ensure this is part of the enriched data
+}
+
 export default function TrabajosPage() {
-    const [jobs, setJobs] = useState<ServiceRequest[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const firestore = useFirestore();
+    // Correctly query the serviceRequests collection
+    const servicesQuery = useMemoFirebase(() => query(collection(firestore, 'serviceRequests'), orderBy('createdAt', 'desc')), [firestore]);
+    const { data: serviceRequests, isLoading } = useCollection<ServiceRequest>(servicesQuery);
+    const [enrichedJobs, setEnrichedJobs] = useState<EnrichedServiceRequest[]>([]);
 
     useEffect(() => {
-        const fetchJobs = async () => {
-            setIsLoading(true);
-            const jobsQuery = query(collection(db, 'serviceRequests'), orderBy('createdAt', 'desc'));
-            const querySnapshot = await getDocs(jobsQuery);
-            const jobsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ServiceRequest));
-            setJobs(jobsData);
-            setIsLoading(false);
+        const enrichJobs = async () => {
+            if (serviceRequests) {
+                const enriched = await Promise.all(serviceRequests.map(async (job) => {
+                    let clientName = 'N/A';
+                    // The client data is stored in clientRef, we need to fetch it
+                    if (job.clientRef) {
+                        try {
+                            const clientSnap = await getDoc(job.clientRef);
+                            if (clientSnap.exists()) {
+                                const clientData = clientSnap.data();
+                                clientName = `${clientData.firstName} ${clientData.lastName}`;
+                            }
+                        } catch (error) {
+                            console.error("Error fetching client data: ", error);
+                        }
+                    }
+                    // Ensure quoteTotal is passed through, assuming it exists on the job document
+                    return { ...job, clientName, quoteTotal: job.quoteTotal || 0 };
+                }));
+                setEnrichedJobs(enriched);
+            }
         };
 
-        fetchJobs();
-    }, []);
+        enrichJobs();
+    }, [serviceRequests]);
 
     return (
         <Card>
@@ -70,14 +92,14 @@ export default function TrabajosPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {isLoading && <TableRow><TableCell colSpan={6}>Cargando trabajos...</TableCell></TableRow>}
-                        {!isLoading && jobs.map(job => (
+                        {isLoading && <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando trabajos...</TableCell></TableRow>}
+                        {!isLoading && enrichedJobs.map(job => (
                             <TableRow key={job.id}>
-                                <TableCell className="font-medium">{job.client.firstName} {job.client.lastName}</TableCell>
+                                <TableCell className="font-medium">{job.clientName}</TableCell>
                                 <TableCell>{job.description}</TableCell>
-                                <TableCell>{job.assignedMaster ? job.assignedMaster.name : <span className="text-gray-500">No asignado</span>}</TableCell>
+                                <TableCell>{job.assignedMaster?.name || <span className="text-gray-500">No asignado</span>}</TableCell>
                                 <TableCell>
-                                    <Badge variant="secondary" className={`${statusColors[job.status]} text-white`}>
+                                    <Badge variant="secondary" className={`${statusColors[job.status] || 'bg-gray-400'} text-white`}>
                                         {job.status}
                                     </Badge>
                                 </TableCell>
@@ -102,7 +124,7 @@ export default function TrabajosPage() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {!isLoading && jobs.length === 0 && (
+                        {!isLoading && enrichedJobs.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={6} className="text-center h-24">No hay trabajos para mostrar. Comience creando una cotización.</TableCell>
                             </TableRow>
