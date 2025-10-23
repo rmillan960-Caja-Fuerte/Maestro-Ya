@@ -7,12 +7,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
 import { Quotation, ServiceRequest } from "@/lib/definitions";
 import { collection, collectionGroup, getDoc, query } from "firebase/firestore";
-import { PlusCircle, ArrowUpRight, MoreHorizontal } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { cn } from "@/lib/utils";
 import { useEffect, useState, useTransition } from "react";
-import { updateServiceRequestStatus } from "@/lib/firebase-actions";
+import { updateServiceRequestStatus, generateQuoteWhatsAppUrl } from "@/lib/firebase-actions";
 
 const statusStyles: { [key: string]: string } = {
     'Completado': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -34,14 +34,15 @@ export default function CotizacionesPage() {
     const quotesQuery = useMemoFirebase(() => query(collectionGroup(firestore, 'quotations')), [firestore]);
     const { data: quotes, isLoading } = useCollection<Quotation>(quotesQuery);
     const [enrichedQuotes, setEnrichedQuotes] = useState<EnrichedQuotation[]>([]);
-    const [isPending, startTransition] = useTransition();
+    const [isStatusPending, startStatusTransition] = useTransition();
+    const [isWhatsAppLoading, setIsWhatsAppLoading] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchClientData = async () => {
             if (quotes) {
                 const enriched = await Promise.all(quotes.map(async (quote) => {
                     let clientName = 'N/A';
-                    let serviceRequestId = undefined;
+                    let serviceRequestId: string | undefined = undefined;
                     let status = 'Cotización';
 
                     try {
@@ -74,22 +75,32 @@ export default function CotizacionesPage() {
     }, [quotes]);
 
     const formatDate = (timestamp: any) => {
-        if (timestamp && typeof timestamp.toDate === 'function') {
-            return timestamp.toDate().toLocaleDateString();
+        if (!timestamp) return 'N/A';
+        try {
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            if (isNaN(date.getTime())) return 'Fecha inválida';
+            return date.toLocaleDateString();
+        } catch (error) {
+            return 'Fecha inválida';
         }
-        if (typeof timestamp === 'string') {
-            const date = new Date(timestamp);
-            if (!isNaN(date.getTime())) {
-                return date.toLocaleDateString();
-            }
-        }
-        return 'N/A';
     };
 
     const handleStatusUpdate = (serviceRequestId: string, newStatus: 'Aprobado' | 'Cancelado') => {
-        startTransition(async () => {
+        startStatusTransition(async () => {
             await updateServiceRequestStatus(serviceRequestId, newStatus);
         });
+    };
+
+    const handleSendWhatsApp = async (quoteId: string, serviceRequestId: string) => {
+        setIsWhatsAppLoading(quoteId);
+        const result = await generateQuoteWhatsAppUrl(quoteId, serviceRequestId);
+        setIsWhatsAppLoading(null);
+
+        if (result.success && result.url) {
+            window.open(result.url, '_blank');
+        } else {
+            alert(`Error: ${result.message}`);
+        }
     };
 
     return (
@@ -124,7 +135,7 @@ export default function CotizacionesPage() {
                     <TableBody>
                         {isLoading && <TableRow><TableCell colSpan={5} className="text-center">Cargando cotizaciones...</TableCell></TableRow>}
                         {!isLoading && enrichedQuotes.map(quote => (
-                            <TableRow key={quote.id} className={isPending ? 'opacity-50' : ''}>
+                            <TableRow key={quote.id} className={isStatusPending ? 'opacity-50' : ''}>
                                 <TableCell className="font-medium">{quote.clientName || 'N/A'}</TableCell>
                                 <TableCell>${(quote.amount || 0).toFixed(2)}</TableCell>
                                 <TableCell className="hidden md:table-cell">{formatDate(quote.creationDate)}</TableCell>
@@ -136,7 +147,7 @@ export default function CotizacionesPage() {
                                 <TableCell>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button aria-haspopup="true" size="icon" variant="ghost" disabled={isPending}>
+                                            <Button aria-haspopup="true" size="icon" variant="ghost" disabled={isStatusPending}>
                                                 <MoreHorizontal className="h-4 w-4" />
                                                 <span className="sr-only">Toggle menu</span>
                                             </Button>
@@ -148,16 +159,19 @@ export default function CotizacionesPage() {
                                                     <DropdownMenuItem asChild>
                                                         <Link href={`/dashboard/trabajos/${quote.serviceRequestId}`}>Ver Detalles</Link>
                                                     </DropdownMenuItem>
-                                                    <DropdownMenuItem disabled={isPending} onSelect={() => alert('Próximamente: Enviar por WhatsApp con IA')}>
+                                                    <DropdownMenuItem 
+                                                        disabled={isStatusPending || isWhatsAppLoading === quote.id} 
+                                                        onSelect={() => handleSendWhatsApp(quote.id, quote.serviceRequestId!)}>
+                                                        {isWhatsAppLoading === quote.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                                         Enviar por WhatsApp
                                                     </DropdownMenuItem>
                                                     {quote.status !== 'Aprobado' && (
-                                                        <DropdownMenuItem disabled={isPending} onSelect={() => handleStatusUpdate(quote.serviceRequestId!, 'Aprobado')}>
+                                                        <DropdownMenuItem disabled={isStatusPending} onSelect={() => handleStatusUpdate(quote.serviceRequestId!, 'Aprobado')}>
                                                             Marcar como Aprobada
                                                         </DropdownMenuItem>
                                                     )}
                                                     {quote.status !== 'Cancelado' && (
-                                                        <DropdownMenuItem disabled={isPending} className="text-red-600" onSelect={() => handleStatusUpdate(quote.serviceRequestId!, 'Cancelado')}>
+                                                        <DropdownMenuItem disabled={isStatusPending} className="text-red-600" onSelect={() => handleStatusUpdate(quote.serviceRequestId!, 'Cancelado')}>
                                                             Cancelar Cotización
                                                         </DropdownMenuItem>
                                                     )}
